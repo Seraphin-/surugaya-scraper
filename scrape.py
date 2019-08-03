@@ -1,37 +1,33 @@
+from multiprocessing import get_context
 from requests_html import HTMLSession
 import sqlite3
 from datetime import datetime
 from tqdm import tqdm, tqdm_gui
 
-logfile = open(datetime.now().strftime("%Y-%m-%d-%H.log"), "a")
 def log(base, name, itemid):
+	logfile = open(datetime.now().strftime("%Y-%m-%d-%H.log"), "a", encoding='utf-8')
 	logfile.write(base + " " + name + " " + str(itemid) + "\n")
+	logfile.close()
 
-conn = sqlite3.connect('surugaya.db3')
-conn.row_factory = sqlite3.Row
-conn.execute('PRAGMA encoding="UTF-8";')
-c = conn.cursor()
-
-session = HTMLSession()
-BASE = "https://www.suruga-ya.jp"
-
-r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending')
-categories = r.html.xpath('/html/body/div[1]/div[2]/div[2]/ul')[0].links #years
-categories.update(r.html.xpath('/html/body/div[1]/div[2]/div[4]/ul')[0].links) #price
-categories.add('/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending&restrict[]=price=[0,199]')
-for category in categories:
+def getCategory(category):
+	conn = sqlite3.connect('surugaya.db3')
+	conn.row_factory = sqlite3.Row
+	conn.execute('PRAGMA encoding="UTF-8";')
+	c = conn.cursor()
 	#Check if recently done (a hour)
-	c.execute('SELECT * FROM log WHERE category = ? AND timestamp > ?', [category, datetime.now().timestamp() - 60 * 60 * 1])
-	if c.fetchone() is not None:
-		print('Skipping recently done', category)
-		continue
+	# c.execute('SELECT * FROM log WHERE category = ? AND timestamp > ?', [category, datetime.now().timestamp() - 60 * 60 * 1])
+	# if c.fetchone() is not None:
+	# 	print('Skipping recently done', category)
+	# 	return
 	dirty = False #skip when true, used for avoiding extra duplication on price sort
 	#Get first page manually and count total
+	session = HTMLSession()
+	BASE = "https://www.suruga-ya.jp"
 	first_page = session.get(BASE + category + '&inStock=On&adult_s=1')
 	total, per = first_page.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[1]')[0].search('該当件数:{}件中\xa01-{}件')
 	pages = -(-int(total.replace(',', '')) // int(per))
-	print('Grabbing for', category, 'with total items', total)
-	for i in tqdm(range(1, pages+1)): #just reget the first one to make it easier
+	#print('Grabbing for', category, 'with total items', total)
+	for i in range(1, pages+1): #just reget the first one to make it easier
 		active_page = session.get(BASE + category + '&inStock=On&adult_s=1' + '&page=' + str(i))
 		items = active_page.html.find('.item')
 		for item in items:
@@ -82,6 +78,23 @@ for category in categories:
 					c.execute('UPDATE items SET name = ?, circle = ?, price = ?, image = ?, release = ?, condition = ?, status = ? WHERE productid = ?', props[1:] + [props[0]])
 		conn.commit()
 		if dirty:
-			print("\nExited out of price set early, no more unknown date releases")
+			#print("\nExited out of price set early, no more unknown date releases")
 			break
-	c.execute('INSERT INTO log VALUES (?,?)', [category, datetime.now().timestamp()])
+	# c.execute('INSERT INTO log VALUES (?,?)', [category, datetime.now().timestamp()])
+
+if __name__ == '__main__':
+	logfile = open(datetime.now().strftime("%Y-%m-%d-%H.log"), "a", encoding='utf-8')
+
+	session = HTMLSession()
+	BASE = "https://www.suruga-ya.jp"
+
+	r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending')
+	categories = r.html.xpath('/html/body/div[1]/div[2]/div[2]/ul')[0].links #years
+	categories.update(r.html.xpath('/html/body/div[1]/div[2]/div[4]/ul')[0].links) #price
+	categories.add('/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending&restrict[]=price=[0,199]')
+	with get_context("spawn").Pool() as pool:
+		pool = Pool() #uses CPU count when processes=None
+		list(tqdm(enumerate(pool.imap_unordered(getCategory, categories)), desc='categories', total=len(categories)))
+		pool.close()
+		pool.join()
+	print("Done")
