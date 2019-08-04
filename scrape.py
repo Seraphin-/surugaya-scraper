@@ -3,7 +3,6 @@ from multiprocessing.pool import ThreadPool
 from requests_html import HTMLSession
 from requests.exceptions import ConnectionError
 import sqlite3
-from datetime import datetime
 from tqdm import tqdm
 
 def get_retry(session, page):
@@ -79,7 +78,7 @@ def getCategory(category):
 	#print('Grabbing for', category, 'with total items', total)
 	pagelist = (BASE + category + '&inStock=On&adult_s=1' + '&page=' + str(i) for i in range(1, pages+1))
 	pool = ThreadPool(processes=8) #threads
-	r = pool.imap_unordered(getPage, pagelist)
+	r = pool.imap(getPage, pagelist) #we want to preserve order so as to not bail out too early
 	pool.close()
 	dirty = False #skip when true, used for avoiding extra duplication on price sort
 	full = []
@@ -112,7 +111,7 @@ if __name__ == '__main__':
 		pool.join()
 	print("Updating database")
 	conn = sqlite3.connect('surugaya.db3', check_same_thread=True)
-	conn.row_factory = sqlite3.Row
+	#conn.row_factory = sqlite3.Row only needed if checking keys
 	conn.execute('PRAGMA encoding="UTF-8";')
 	c = conn.cursor()
 	new = 0
@@ -124,13 +123,13 @@ if __name__ == '__main__':
 			row = c.fetchone()
 			if row is None:
 				c.execute('INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?)', props)
-				c.execute('INSERT INTO changes (`type`, `from`, `to`) VALUES (?,?,?)', [0, props[0], props[1]])
+				c.execute('INSERT INTO changes (`type`, `from`, `to`, `productid`) VALUES (?,?,?,?)', [0, None, props[1], props[0]])
 				new += 1
 			else:
 				update = False
 				for p in range(1, len(props)):
 					if props[p] != row[p] and row[0] != '186148292': #item with dupe search
-						c.execute('INSERT INTO changes (`type`, `from`, `to`) VALUES (?,?,?)', [p, row[p], props[p]])
+						c.execute('INSERT INTO changes (`type`, `from`, `to`, `productid`) VALUES (?,?,?,?)', [p, row[p], props[p], props[0]])
 						update = True
 				if update:
 					c.execute('UPDATE items SET `name` = ?, `circle` = ?, `price` = ?, `image` = ?, `release` = ?, `condition` = ?, `status` = ?, `timesale` = ? WHERE `productid` = ?', props[1:] + [props[0]])
