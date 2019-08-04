@@ -4,12 +4,7 @@ from requests_html import HTMLSession
 from requests.exceptions import ConnectionError
 import sqlite3
 from datetime import datetime
-from tqdm import tqdm, tqdm_gui
-
-def log(base, name, itemid):
-	logfile = open(datetime.now().strftime("%Y-%m-%d-%H.log"), "a", encoding='utf-8')
-	logfile.write(base + " " + name + " " + str(itemid) + "\n")
-	logfile.close()
+from tqdm import tqdm
 
 def get_retry(session, page):
 	active_page = False
@@ -25,7 +20,8 @@ def get_retry(session, page):
 	return active_page
 
 def getPage(page):
-	global session
+	global session, requested
+	requested += 1
 	active_page = get_retry(session, page)
 	if active_page == False:
 		return
@@ -62,11 +58,16 @@ def getPage(page):
 			status = status[0].attrs['class'][0] #hit, sale, new_arrival
 		if "price" in page and release != "<Unknown>" and circle != "GREen": #bugged with that one
 			dirty = True #no more no date releases to get for this price range
-		plist.append([itemid, name, circle, price, image, release, condition, status])
+		timesale = item.find('.timesale')
+		if len(timesale) == 0:
+			timesale = 0
+		else:
+			timesale = 1
+		plist.append([itemid, name, circle, price, image, release, condition, status, timesale])
 	return (plist, dirty)
 
 def getCategory(category):
-	global session
+	global session, requested
 	#Get first page manually and count total
 	session = HTMLSession()
 	BASE = "https://www.suruga-ya.jp"
@@ -82,25 +83,28 @@ def getCategory(category):
 	pool.close()
 	dirty = False #skip when true, used for avoiding extra duplication on price sort
 	full = []
+	requested = 0
+	returned = 0
 
 	for plist, dirty in r:
 		full += plist
+		returned += 1
 		if dirty:
 			pool.terminate()
 			break
 	pool.join()
-	return full
+	del session
+	return full, pages, requested, returned
 
 if __name__ == '__main__':
-	logfile = open(datetime.now().strftime("%Y-%m-%d-%H.log"), "a", encoding='utf-8')
-
 	session = HTMLSession()
 	BASE = "https://www.suruga-ya.jp"
-
 	r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending')
 	categories = r.html.xpath('/html/body/div[1]/div[2]/div[2]/ul')[0].links #years
 	categories.update(r.html.xpath('/html/body/div[1]/div[2]/div[4]/ul')[0].links) #price
 	categories.add('/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending&restrict[]=price=[0,199]')
+	del session
+
 	print("Getting all pages")
 	with get_context("spawn").Pool() as pool:
 		result = list(tqdm(enumerate(pool.imap_unordered(getCategory, categories)), desc='categories', total=len(categories)))
@@ -111,21 +115,29 @@ if __name__ == '__main__':
 	conn.row_factory = sqlite3.Row
 	conn.execute('PRAGMA encoding="UTF-8";')
 	c = conn.cursor()
+	new = 0
+	updated = 0
+	processed = 0
 	for cat in result:
-		for props in cat[1]:
-			c.execute('SELECT * FROM items WHERE productid = ?', [props[0]])
+		for props in cat[1][0]:
+			c.execute('SELECT * FROM items WHERE `productid` = ?', [props[0]])
 			row = c.fetchone()
 			if row is None:
-				c.execute('INSERT INTO items VALUES (?,?,?,?,?,?,?,?)', props)
-				log("New items:", props[1], props[0])
+				c.execute('INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?)', props)
+				c.execute('INSERT INTO changes (`type`, `from`, `to`) VALUES (?,?,?)', [0, props[0], props[1]])
+				new += 1
 			else:
 				update = False
 				for p in range(1, len(props)):
 					if props[p] != row[p] and row[0] != '186148292': #item with dupe search
-						log('Updated ' + row.keys()[p] + ':', props[1], props[0])
+						c.execute('INSERT INTO changes (`type`, `from`, `to`) VALUES (?,?,?)', [p, row[p], props[p]])
 						update = True
 				if update:
-					c.execute('UPDATE items SET name = ?, circle = ?, price = ?, image = ?, release = ?, condition = ?, status = ? WHERE productid = ?', props[1:] + [props[0]])
-			conn.commit()
+					c.execute('UPDATE items SET `name` = ?, `circle` = ?, `price` = ?, `image` = ?, `release` = ?, `condition` = ?, `status` = ?, `timesale` = ? WHERE `productid` = ?', props[1:] + [props[0]])
+					updated += 1
+			processed += 1
+		conn.commit()
 	conn.close()
 	print("Done")
+	print("Requested", sum(cat[1][2] for cat in result), "pages, returned", sum(cat[1][3] for cat in result), "pages out of a possible", sum(cat[1][1] for cat in result))
+	print("Processed", processed, "items -", updated, "updated and", new, "new")
