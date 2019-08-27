@@ -97,6 +97,7 @@ def getCategory(category):
 
 if __name__ == '__main__':
 	session = HTMLSession()
+	BAD_ITEMS = [186132574, 186148292]
 	BASE = "https://www.suruga-ya.jp"
 	r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending')
 	categories = r.html.xpath('/html/body/div[1]/div[2]/div[2]/ul')[0].links #years
@@ -128,7 +129,7 @@ if __name__ == '__main__':
 			else:
 				update = False
 				for p in range(1, len(props)):
-					if props[p] != row[p] and row[0] != '186148292': #item with dupe search
+					if props[p] != row[p] and row[0] not in BAD_ITEMS: #item with dupe search
 						c.execute('INSERT INTO changes (`type`, `from`, `to`, `productid`) VALUES (?,?,?,?)', [p, row[p], props[p], props[0]])
 						update = True
 				if update:
