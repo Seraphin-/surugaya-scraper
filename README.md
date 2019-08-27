@@ -2,8 +2,8 @@
 Scrape surugaya's categories for items and changes
 
 ## Requirements
-requests_html
-tqdm
+* requests_html
+* tqdm
 
 ## Database
 	CREATE TABLE 'items' ('productid' INTEGER PRIMARY KEY NOT NULL, 'name' TEXT, 'circle' TEXT, 'price' INTEGER, 'image' TEXT, 'release' TEXT,'condition' INTEGER, 'status' TEXT, 'timesale' INTEGER DEFAULT 0)
@@ -13,21 +13,21 @@ tqdm
 Website to display information about changes.
 
 ## Requirements
-php
-random_bytes polyfill https://github.com/paragonie/random_compat in /in/lib
-bootstrap in /in/lib (you probably will need to change the integrity hash)
-jquery 3.4.1 in /in/lib
-cron
+* php
+* random_bytes polyfill https://github.com/paragonie/random_compat in /in/lib
+* bootstrap in /in/lib (you probably will need to change the integrity hash)
+* jquery 3.4.1 in /in/lib
+* cron
 
 ## Changes to make before running
-Replace reCAPTCHA secret token in index.php
-Replace database paths in index.php, changes.php, ajax/import_list.php, items.php, search.php, logout.php, cronlists.php.
-Replace email from address and admin address in cronlists.php.
-Replace domain name in lists.php script template.
-Replace directory names if neccessary in all files.
-Replace default invite code.
-Set up a cronjob to run cronlists.php.
-Redirect all directory traffic to index.php like follows (apache):
+* Replace reCAPTCHA secret token in index.php
+* Replace database paths in index.php, changes.php, ajax/import_list.php, items.php, search.php, logout.php, cronlists.php.
+* Replace email from address and admin address in cronlists.php.
+* Replace domain name in lists.php script template.
+* Replace directory names if neccessary in all files.
+* Replace default invite code.
+* Set up a cronjob to run cronlists.php.
+* Redirect all directory traffic to index.php like follows (apache):
 
 	<Directory "/website/">
 		RewriteCond %{REQUEST_URI} !^/website/in/*
