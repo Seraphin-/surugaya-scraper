@@ -42,7 +42,7 @@ def getPage(page):
 				condition = 1 #used
 			else:
 				condition = 2 #new
-		image = item.find('.thum > a > img')[0].attrs['src']
+		image = item.find('.thum > a > img')[0].attrs['data-src']
 		release = item.find('.release_date')
 		if len(release) == 0:
 			release = "<Unknown>"
@@ -73,7 +73,7 @@ def getCategory(category):
 	first_page = get_retry(session, BASE + category + '&inStock=On&adult_s=1')
 	if first_page == False:
 		return
-	total, per = first_page.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[1]')[0].search('該当件数:{}件中\xa01-{}件')
+	total, per = first_page.html.xpath('/html/body/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]')[0].search('該当件数:{}件中\xa01-{}件')
 	pages = -(-int(total.replace(',', '')) // int(per))
 	#print('Grabbing for', category, 'with total items', total)
 	pagelist = (BASE + category + '&inStock=On&adult_s=1' + '&page=' + str(i) for i in range(1, pages+1))
@@ -100,8 +100,8 @@ if __name__ == '__main__':
 	BAD_ITEMS = [186132574, 186148292]
 	BASE = "https://www.suruga-ya.jp"
 	r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending')
-	categories = r.html.xpath('/html/body/div[1]/div[2]/div[2]/ul')[0].links #years
-	categories.update(r.html.xpath('/html/body/div[1]/div[2]/div[4]/ul')[0].links) #price
+	categories = r.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[2]/ul')[0].links #years
+        categories.update(r.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[4]/ul')[0].links) #price
 	categories.add('/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending&restrict[]=price=[0,199]')
 	del session
 
