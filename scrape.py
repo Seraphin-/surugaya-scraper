@@ -1,18 +1,25 @@
 from multiprocessing import get_context
 from multiprocessing.pool import ThreadPool
 from requests_html import HTMLSession
-from requests.exceptions import ConnectionError
+from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 import sqlite3
 from tqdm import tqdm
+import logging
+
+logging.basicConfig()
+# logging.getLogger().setLevel(logging.DEBUG)
+debug = logging.debug
 
 def get_retry(session, page):
+	debug("get_retry: %s", page)
 	active_page = False
 	attempt_count = 0
 	while not active_page:
 		try:
-			active_page = session.get(page)
+			active_page = session.get(page, timeout=5)
 			attempt_count += 1
-		except ConnectionError:
+		except (ConnectionError, Timeout, TooManyRedirects):
+			debug("get_retry: failed %d * %s", attempt_count, page)
 			if attempt_count > 10:
 				print("Gave up on page", page)
 				return False
@@ -28,7 +35,7 @@ def getPage(page):
 	dirty = False
 	plist = []
 	for item in items:
-		itemid = int(item.find('.thum > a')[0].attrs['href'].split('/')[-1])
+		itemid = int(item.find('.thum > a')[0].attrs['href'].split('/')[-1].split('?')[0])
 		name = item.find('.title > a')[0].text
 		circle = item.find('.brand')[0].text
 		price = item.find('.item_price > .price_teika > span > strong')
@@ -36,19 +43,19 @@ def getPage(page):
 		if len(price) == 0:
 			price = -1
 		else:
-			price = int(price[0].text.replace(',', '').replace('￥', ''))
-			condition = item.find('.item_price > .price_teika')[0].text.split(':')[0]
-			if condition == "中古":
+			price = int(price[0].text.replace(',', '').replace('ï¿¥', ''))
+			condition = item.find('.item_price > .price_teika')[0].text.split('ï¼š')[0]
+			if condition == "ä¸­å¤":
 				condition = 1 #used
 			else:
 				condition = 2 #new
-		image = item.find('.thum > a > img')[0].attrs['data-src']
+		image = item.find('.thum > a > img')[0].attrs['src']
 		release = item.find('.release_date')
 		if len(release) == 0:
 			release = "<Unknown>"
 		else:
 			release = release[0].text
-		if release == '発売日：/':
+		if release == 'ç™ºå£²æ—¥ï¼š/':
 			release = "<Unknown>" #another odd condition
 		status = item.find('.condition > span')
 		if len(status) == 0:
@@ -73,7 +80,14 @@ def getCategory(category):
 	first_page = get_retry(session, BASE + category + '&inStock=On&adult_s=1')
 	if first_page == False:
 		return
-	total, per = first_page.html.xpath('/html/body/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]')[0].search('該当件数:{}件中\xa01-{}件')
+	
+	first_page_valid = first_page.html.find('.search_option > .hit')
+	if len(first_page_valid) == 0:
+		return
+	search_res = first_page_valid[0].search('è©²å½“ä»¶æ•°:{}ä»¶ä¸­\xa01-{}ä»¶')
+	if search_res is None or len(search_res.fixed) != 2:
+		return # Failed search (0)
+	total, per = search_res
 	pages = -(-int(total.replace(',', '')) // int(per))
 	#print('Grabbing for', category, 'with total items', total)
 	pagelist = (BASE + category + '&inStock=On&adult_s=1' + '&page=' + str(i) for i in range(1, pages+1))
@@ -97,11 +111,17 @@ def getCategory(category):
 
 if __name__ == '__main__':
 	session = HTMLSession()
-	BAD_ITEMS = [186132574, 186148292]
 	BASE = "https://www.suruga-ya.jp"
-	r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending')
-	categories = r.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[2]/ul')[0].links #years
-        categories.update(r.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[4]/ul')[0].links) #price
+	BASE_YEAR_S = "/search?category=11010200&search_word=&rankBy=release_date(int)%3Aascending&restrict[]=release_year=[{},{}]"
+
+	r = session.get(BASE + '/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending', timeout=5)
+	# categories = r.html.xpath('/html/body/div[1]/div[1]/div[2]/div[1]/div[2]/ul')[0].links #years
+	categories = set()
+	for year in range(1990,2021):
+		categories.add(BASE_YEAR_S.format(year, year))
+	
+	categories.add("/search?category=11010200&search_word=&rankBy=release_date(int)%3Aascending&restrict[]=release_year=[2021,*]")
+	categories.update(r.html.find('.facet-price')[0].links) #price
 	categories.add('/search?category=11010200&search_word=&rankBy=release_date%28int%29%3Aascending&restrict[]=price=[0,199]')
 	del session
 
@@ -111,15 +131,28 @@ if __name__ == '__main__':
 		pool.close()
 		pool.join()
 	print("Updating database")
-	conn = sqlite3.connect('surugaya.db3', check_same_thread=True)
+	conn = sqlite3.connect('/var/www/html/db/surugaya.db3', check_same_thread=True)
 	#conn.row_factory = sqlite3.Row only needed if checking keys
 	conn.execute('PRAGMA encoding="UTF-8";')
 	c = conn.cursor()
 	new = 0
 	updated = 0
 	processed = 0
+	bad_ids = [186148292, 186101253, 186121887, 186132574]
+	
+	def isValid(cat):
+		if cat is None:
+			return false
+		if len(cat) < 2 or cat[1] is None or len(cat[1]) == 0:
+			logging.warning("Invalid result entry %s", cat)
+			return False
+		return True
+	result = filter(isValid, result)
+
 	for cat in result:
 		for props in cat[1][0]:
+			if props[0] in bad_ids:
+				continue
 			c.execute('SELECT * FROM items WHERE `productid` = ?', [props[0]])
 			row = c.fetchone()
 			if row is None:
@@ -129,7 +162,7 @@ if __name__ == '__main__':
 			else:
 				update = False
 				for p in range(1, len(props)):
-					if props[p] != row[p] and row[0] not in BAD_ITEMS: #item with dupe search
+					if props[p] != row[p]: #item with dupe search
 						c.execute('INSERT INTO changes (`type`, `from`, `to`, `productid`) VALUES (?,?,?,?)', [p, row[p], props[p], props[0]])
 						update = True
 				if update:
