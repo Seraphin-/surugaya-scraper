@@ -45,7 +45,7 @@ def getPage(page):
 		else:
 			price = int(price[0].text.replace(',', '').replace('ï¿¥', ''))
 			condition = item.find('.item_price > .price_teika')[0].text.split('ï¼š')[0]
-			if condition == "ä¸­å¤":
+			if condition == "中古":
 				condition = 1 #used
 			else:
 				condition = 2 #new
@@ -55,7 +55,7 @@ def getPage(page):
 			release = "<Unknown>"
 		else:
 			release = release[0].text
-		if release == 'ç™ºå£²æ—¥ï¼š/':
+		if release == '発売日：/':
 			release = "<Unknown>" #another odd condition
 		status = item.find('.condition > span')
 		if len(status) == 0:
@@ -84,7 +84,7 @@ def getCategory(category):
 	first_page_valid = first_page.html.find('.search_option > .hit')
 	if len(first_page_valid) == 0:
 		return
-	search_res = first_page_valid[0].search('è©²å½“ä»¶æ•°:{}ä»¶ä¸­\xa01-{}ä»¶')
+	search_res = first_page_valid[0].search('該当件数:{}件中\xa01-{}件')
 	if search_res is None or len(search_res.fixed) != 2:
 		return # Failed search (0)
 	total, per = search_res
