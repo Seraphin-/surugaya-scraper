@@ -36,7 +36,7 @@
             <form class="row card card-body" action="post" name="login" method="post">
                 <div class="form-group">
                     <label for="username" class="label">username</label>
-                    <input class="form-control" type="text" placeholder="RainHeaven" name="username" required>
+                    <input class="form-control" type="text" placeholder="username" name="username" required>
                 </div>
                 <div class="form-group">
                     <label for="password" class="label">password</label>
